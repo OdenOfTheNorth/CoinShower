@@ -50,27 +50,54 @@ function clamp(x, y, a) {
 const CoinTags = {Small: 0, Large: 1, explosive: 2};
 
 class ParticleSystem extends PIXI.Container {
-	
-	constructor() {
+	//
+	/**
+     * Can customize durration, freqency, particle lifetime and how many particle should be visible on screen from constructor.
+     * @param {number} durration - The durration of the effect in milliseconds.
+	 * @param {number} freqency - The time diffrnce for spawning particles in milliseconds.
+	 * @param {number} lifetime - The time it takes for a partical to stop rendering in milliseconds.
+	 * @param {number} particleOnScreen - The max amount of particles allowed on screen.
+	 * @param {CoinTags} typesToSpawn - A array containing the tags a coin can spawn with.
+	 * @param {number} x - The x origin of the effect.
+     * @param {number} y - The y origin of the effect.
+     */
+	constructor(durration = 20000, freqency = 20, lifetime = 1000, particleOnScreen = 50, typesToSpawn = [CoinTags.Small, CoinTags.Large, CoinTags.explosive], x = 400, y = 225) {
 		super();
-		// Set start and duration for this effect in milliseconds
+		// Start time in milliseconds
 		this.start    = 0;
-		this.duration = 5000;
+		//Set origin of where all particles should spawn from
+		this.originX = x;
+		this.originY = y;
+		// Duration of the effect in milliseconds
+		this.duration = durration;
 		this.lastTimeTextureIndexChanged = null;
+		// Array to hold all sprite particles
 		this.sp = [];
 		//The time it takes for a partical to stop rendering in milliseconds
-		this.particalLifeTime = 1000;
+		this.particleLifeTime = lifetime;
+		//The time diffrnce for spawning particles in milliseconds
+		this.particleSpawnFreqency = freqency;
+		//The max amount of particles allowed on screen 
+		this.particleAllowedOnScreen = particleOnScreen;
+		//The current nimber of particles on scrren
+		this.currentparticleCount = 0;
+		//Last time a oarticle was spawned
+		this.lastSpawnTime = 0;
 
 		/*
+			Loop trought "typesToSpawn"
 			Add lots of fast moving bouncing coins 
 		*/
+		for(var i = 0; i < typesToSpawn.length; i++){
+			const coinsAmount = Math.floor(particleOnScreen / typesToSpawn.length);
+			this.CreateCoins(coinsAmount, typesToSpawn[i]);
+		}
 
-		//Create coins
-		this.CreateCoins(100,CoinTags.Small);
-		this.CreateCoins(10, CoinTags.Large);
-		this.CreateCoins(20, CoinTags.explosive);
+
 	}
-	// General creation function for making sprites
+	/**
+     * Creates a sprite at a given location.
+     */
 	CreateSprite(location){
 		// Create a sprite
 		let sp        = game.sprite(location);
@@ -83,7 +110,11 @@ class ParticleSystem extends PIXI.Container {
 
 		return sp;
 	}
-	// Create Coins 
+    /**
+     * Creates coins of a specified amount and type.
+     * @param {number} amount - The number of coins to create.
+     * @param {CoinTags} tag - The type of coins to create.
+     */
 	CreateCoins(amount, tag){
 		// Make const as it will not need to be changed
 		const timeDiff = (this.duration * 0.001 * 0.8) / amount;
@@ -102,7 +133,7 @@ class ParticleSystem extends PIXI.Container {
 			// Set Coins texture spawn index
 			sp.textureIndex = Math.floor(i % 9);			
 			// delay in seconds
-			sp.timeOffset = i * timeDiff; 	
+			sp.spawnTime = 0; 	
 			//Set Rotation Speed		
 			sp.rotationSpeed = 1 + Math.floor(Math.random() * 2);
 			// add sp to chilldren
@@ -111,7 +142,14 @@ class ParticleSystem extends PIXI.Container {
 			this.sp.push(sp);
 		}
 	}
-
+    /**
+     * Calculates the position of a bouncy coin.
+     * @param {number} startPos - The starting position.
+     * @param {number} highPoint - The highest point the coin reaches.
+     * @param {number} lowPoint - The lowest point the coin reaches.
+     * @param {number} x - Normalized time value.
+     * @returns {number} The calculated position.
+     */
 	launchBouncyCoins(startPos, highPoint, lowPoint, x) {
 		//convert value from 0 - 1 to 0 - 2
 		var value = lerp(0, 2, x);
@@ -122,49 +160,79 @@ class ParticleSystem extends PIXI.Container {
 		//if value above 1 simply return this.
 		return (startPos - highPoint) + easeOutBounce(value - 1) * lowPoint;
 	}
-
+	/**
+     * Checks if a particle should be spawned.
+     * @param {PIXI.Sprite} sp - The sprite particle.
+     * @param {number} gt - Global time in milliseconds.
+     * @param {number} lt - Local time in milliseconds.
+     * @returns {boolean} Whether the particle should be spawned.
+     */
+	shouldSpawnParticle(sp, gt, lt) {
+		return 	gt - this.lastSpawnTime > this.particleSpawnFreqency &&
+				this.currentparticleCount < this.particleAllowedOnScreen &&
+				lt + this.particleLifeTime < this.duration && 
+				!sp.visible;	
+	}
+    /**
+     * Spawns a particle by setting its properties and making it visible.
+     * @param {PIXI.Sprite} sp - The sprite particle.
+     * @param {number} gt - Global time in milliseconds.
+     */
+	spawnParticle(sp, gt) {
+		sp.visible = true;	
+		sp.tag = Math.floor(Math.random() * 4);
+		sp.targetX = Math.tan(sp.targetX * 13.259) + Math.sin(sp.targetX * 13.357) * 500; //(-500 + Math.random() * (500 * 2));
+		sp.targetY = Math.sin(sp.targetY * 17.356) + Math.cos(sp.targetY * 51.356) * 250; //(-250 + Math.random() * (250 * 2));
+		this.lastSpawnTime = sp.spawnTime = gt;
+		this.currentparticleCount++;
+    }
+    /**
+     * Resets a particle by hiding it and resetting its spawnTime to 0.
+     */
+	resetParticle(sp){
+		sp.visible = false;
+		sp.spawnTime = 0;
+		this.currentparticleCount--;
+	}
+    /**
+     * Updates the animation each tick.
+     * @param {number} nt - Normalized time in procentage (0.0 to 1.0) and is calculated by
+	 *       				just dividing local time with duration of this effect.
+     * @param {number} lt - Local time in milliseconds, from 0 to this.duration..
+     * @param {number} gt - Global time in milliseconds.
+     */
 	animTick(nt,lt,gt) {
-		// Every update we get three different time variables: nt, lt and gt.
-		//   nt: Normalized time in procentage (0.0 to 1.0) and is calculated by
-		//       just dividing local time with duration of this effect.
-		//   lt: Local time in milliseconds, from 0 to this.duration.
-		//   gt: Global time in milliseconds,
-
-		const startPosY = 225;
-		const startPosX = 400;
+		const startPosX = this.originX;
+		const startPosY = this.originY;
+		
 		const height = 170;
 		
-		//Fun reverse effect
-		const time = gt / 1000;
-		const sinwave = 0.5 + (0.5 * Math.sin(time));
-
 		const num = Math.floor(nt * 8);		
 		let updateCoinTextureThisframe = this.lastTimeTextureIndexChanged !== num;
 		if(updateCoinTextureThisframe){
 			this.lastTimeTextureIndexChanged = num;
-		}		
+		}	
 
 		// Loop trough all patricals to update
 		for(let i = 0; i < this.sp.length; i++){
 			let sp = this.sp[i];
 
-			//Create spTime so move speed is not bound by this.duration
-			const spTime = clamp(0, this.particalLifeTime * 0.001, lt * 0.001 - sp.timeOffset);
-			//console.log(spStartTime);
+			if(this.shouldSpawnParticle(sp, gt, lt)){
+				this.spawnParticle(sp, gt);
+			}
 
-			// Adjust nt with the use of coin offset
-			const adjustedNt = spTime;// clamp(0, 1, (nt - sp.timeOffset) / (1 - sp.timeOffset));
-
-			// Added a fun reverse effect
-			//const adjustedNt = clamp(0, 1, (sinwave - sp.timeOffset) / (1 - sp.timeOffset));
-			
-			if (adjustedNt <= 0 || adjustedNt >= 1) {
-				// Coin hasn't started its animation or Coin's animation is complete
-				sp.visible = false;
+			if(!sp.visible){
 				continue;
 			}
 
-			sp.visible = true;
+			const spTime = clamp(0, 1, (gt - sp.spawnTime) / this.particleLifeTime);// clamp(0, this.particleLifeTime, nt);
+			
+			if(spTime >= 1){
+				this.resetParticle(sp);
+				continue;
+			}
+
+			const adjustedNt = spTime;
 			
 			if(updateCoinTextureThisframe) {
 				//Increase texture index by 1, if out of bounds set to 0 
